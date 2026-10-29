@@ -1,0 +1,171 @@
+buildscript {
+    repositories {
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath "io.github.fourlastor:construo:2.1.0"
+        if(enableGraalNative == 'true') {
+            classpath "org.graalvm.buildtools.native:org.graalvm.buildtools.native.gradle.plugin:0.9.28"
+        }
+    }
+}
+plugins {
+    id "application"
+}
+apply plugin: 'io.github.fourlastor.construo'
+
+import io.github.fourlastor.construo.Target
+
+sourceSets.main.resources.srcDirs += [ rootProject.file('assets').path ]
+application.mainClass = 'io.github.cybergrid.simulation.lwjgl3.Lwjgl3Launcher'
+eclipse.project.name = appName + '-lwjgl3'
+java.sourceCompatibility = 8
+java.targetCompatibility = 8
+if (JavaVersion.current().isJava9Compatible()) {
+    compileJava.options.release.set(8)
+}
+
+dependencies {
+    implementation "com.badlogicgames.gdx:gdx-backend-lwjgl3:$gdxVersion"
+    implementation "com.badlogicgames.gdx:gdx-lwjgl3-angle:$gdxVersion"
+    implementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+    implementation "com.badlogicgames.gdx:gdx-freetype:$gdxVersion"
+    implementation "com.badlogicgames.gdx:gdx-freetype-platform:$gdxVersion:natives-desktop"
+    implementation project(':core')
+
+    if(enableGraalNative == 'true') {
+        implementation "io.github.berstanio:gdx-svmhelper-backend-lwjgl3:$graalHelperVersion"
+    }
+}
+
+def os = System.properties['os.name'].toLowerCase(Locale.ROOT)
+
+run {
+    workingDir = rootProject.file('assets').path
+    if (os.contains('mac')) jvmArgs += "-XstartOnFirstThread"
+}
+
+// --- FIXED MAIN JAR TASK ---
+jar {
+    archiveFileName.set("${appName}-${projectVersion}.jar")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn configurations.runtimeClasspath
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+    
+    // Excludes directly inside the jar block
+    exclude('META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA')
+    exclude('META-INF/maven/**')
+    
+    manifest {
+        attributes 'Main-Class': application.mainClass, 'Enable-Native-Access': 'ALL-UNNAMED'
+    }
+    doLast {
+        file(archiveFile).setExecutable(true, false)
+    }
+}
+
+// --- FIXED PLATFORM JAR TASKS (Must be type: Jar) ---
+
+tasks.register("jarMac", Jar) {
+    group("build")
+    // Use the logic from the main JAR
+    dependsOn configurations.runtimeClasspath
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+    
+    archiveFileName.set("${appName}-${projectVersion}-mac.jar")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    
+    // Mac Excludes
+    exclude("windows/x86/**", "windows/x64/**", "linux/arm32/**", "linux/arm64/**", "linux/x64/**", "**/*.dll", "**/*.so")
+    exclude('META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA')
+    exclude('META-INF/maven/**')
+
+    manifest { attributes 'Main-Class': application.mainClass }
+}
+
+tasks.register("jarLinux", Jar) {
+    group("build")
+    dependsOn configurations.runtimeClasspath
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+
+    archiveFileName.set("${appName}-${projectVersion}-linux.jar")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // Linux Excludes
+    exclude("windows/x86/**", "windows/x64/**", "macos/arm64/**", "macos/x64/**", "**/*.dll", "**/*.dylib")
+    exclude('META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA')
+    exclude('META-INF/maven/**')
+
+    manifest { attributes 'Main-Class': application.mainClass }
+}
+
+tasks.register("jarWin", Jar) {
+    group("build")
+    dependsOn configurations.runtimeClasspath
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+
+    archiveFileName.set("${appName}-${projectVersion}-win.jar")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // Windows Excludes
+    exclude("macos/arm64/**", "macos/x64/**", "linux/arm32/**", "linux/arm64/**", "linux/x64/**", "**/*.dylib", "**/*.so")
+    exclude('META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA')
+    exclude('META-INF/maven/**')
+
+    manifest { attributes 'Main-Class': application.mainClass }
+}
+
+// --- END FIXED TASKS ---
+
+construo {
+    name.set(appName)
+    humanName.set(appName)
+    targets.configure {
+        register("linuxX64", Target.Linux) {
+            architecture.set(Target.Architecture.X86_64)
+            jdkUrl.set("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.15%2B6/OpenJDK17U-jdk_x64_linux_hotspot_17.0.15_6.tar.gz")
+        }
+        register("macM1", Target.MacOs) {
+            architecture.set(Target.Architecture.AARCH64)
+            jdkUrl.set("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.15%2B6/OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.15_6.tar.gz")
+            identifier.set("io.github.cybergrid.simulation." + appName)
+            macIcon.set(project.file("icons/logo.icns"))
+        }
+        register("macX64", Target.MacOs) {
+            architecture.set(Target.Architecture.X86_64)
+            jdkUrl.set("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.15%2B6/OpenJDK17U-jdk_x64_mac_hotspot_17.0.15_6.tar.gz")
+            identifier.set("io.github.cybergrid.simulation." + appName)
+            macIcon.set(project.file("icons/logo.icns"))
+        }
+        register("winX64", Target.Windows) {
+            architecture.set(Target.Architecture.X86_64)
+            icon.set(project.file("icons/logo.png"))
+            jdkUrl.set("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.15%2B6/OpenJDK17U-jdk_x64_windows_hotspot_17.0.15_6.zip")
+        }
+    }
+}
+
+tasks.register('dist') {
+    dependsOn 'jar'
+}
+
+distributions {
+    main {
+        contents {
+            into('libs') {
+                project.configurations.runtimeClasspath.files.findAll { file ->
+                    file.getName() != project.tasks.jar.outputs.files.singleFile.name
+                }.each { file ->
+                    exclude file.name
+                }
+            }
+        }
+    }
+}
+
+startScripts.dependsOn(':lwjgl3:jar')
+startScripts.classpath = project.tasks.jar.outputs.files
+
+if(enableGraalNative == 'true') {
+    apply from: file("nativeimage.gradle")
+}
